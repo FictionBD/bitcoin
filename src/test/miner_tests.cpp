@@ -52,7 +52,7 @@ BlockAssembler MinerTestingSetup::AssemblerForTest(const CChainParams& params)
 
     options.nBlockMaxWeight = MAX_BLOCK_WEIGHT;
     options.blockMinFeeRate = blockMinFeeRate;
-    return BlockAssembler{m_node.chainman->ActiveChainstate(), *m_node.mempool, options};
+    return BlockAssembler{m_node.chainman->ActiveChainstate(), m_node.mempool.get(), options};
 }
 
 constexpr static struct {
@@ -325,7 +325,7 @@ void MinerTestingSetup::TestBasicMining(const CChainParams& chainparams, const C
         next->pprev = prev;
         next->nHeight = prev->nHeight + 1;
         next->BuildSkip();
-        m_node.chainman->ActiveChain().SetTip(next);
+        m_node.chainman->ActiveChain().SetTip(*next);
     }
     BOOST_CHECK(pblocktemplate = AssemblerForTest(chainparams).CreateNewBlock(scriptPubKey));
     // Extend to a 210000-long block chain.
@@ -337,7 +337,7 @@ void MinerTestingSetup::TestBasicMining(const CChainParams& chainparams, const C
         next->pprev = prev;
         next->nHeight = prev->nHeight + 1;
         next->BuildSkip();
-        m_node.chainman->ActiveChain().SetTip(next);
+        m_node.chainman->ActiveChain().SetTip(*next);
     }
     BOOST_CHECK(pblocktemplate = AssemblerForTest(chainparams).CreateNewBlock(scriptPubKey));
 
@@ -362,15 +362,15 @@ void MinerTestingSetup::TestBasicMining(const CChainParams& chainparams, const C
     // Delete the dummy blocks again.
     while (m_node.chainman->ActiveChain().Tip()->nHeight > nHeight) {
         CBlockIndex* del = m_node.chainman->ActiveChain().Tip();
-        m_node.chainman->ActiveChain().SetTip(del->pprev);
+        m_node.chainman->ActiveChain().SetTip(*Assert(del->pprev));
         m_node.chainman->ActiveChainstate().CoinsTip().SetBestBlock(del->pprev->GetBlockHash());
         delete del->phashBlock;
         delete del;
     }
 
     // non-final txs in mempool
-    SetMockTime(m_node.chainman->ActiveChain().Tip()->GetMedianTimePast()+1);
-    const int flags{LOCKTIME_VERIFY_SEQUENCE | LOCKTIME_MEDIAN_TIME_PAST};
+    SetMockTime(m_node.chainman->ActiveChain().Tip()->GetMedianTimePast() + 1);
+    const int flags{LOCKTIME_VERIFY_SEQUENCE};
     // height map
     std::vector<int> prevheights;
 
@@ -389,7 +389,7 @@ void MinerTestingSetup::TestBasicMining(const CChainParams& chainparams, const C
     tx.nLockTime = 0;
     hash = tx.GetHash();
     m_node.mempool->addUnchecked(entry.Fee(HIGHFEE).Time(GetTime()).SpendsCoinbase(true).FromTx(tx));
-    BOOST_CHECK(CheckFinalTxAtTip(m_node.chainman->ActiveChain().Tip(), CTransaction{tx})); // Locktime passes
+    BOOST_CHECK(CheckFinalTxAtTip(*Assert(m_node.chainman->ActiveChain().Tip()), CTransaction{tx})); // Locktime passes
     BOOST_CHECK(!TestSequenceLocks(CTransaction{tx})); // Sequence locks fail
 
     {
@@ -403,7 +403,7 @@ void MinerTestingSetup::TestBasicMining(const CChainParams& chainparams, const C
     prevheights[0] = baseheight + 2;
     hash = tx.GetHash();
     m_node.mempool->addUnchecked(entry.Time(GetTime()).FromTx(tx));
-    BOOST_CHECK(CheckFinalTxAtTip(m_node.chainman->ActiveChain().Tip(), CTransaction{tx})); // Locktime passes
+    BOOST_CHECK(CheckFinalTxAtTip(*Assert(m_node.chainman->ActiveChain().Tip()), CTransaction{tx})); // Locktime passes
     BOOST_CHECK(!TestSequenceLocks(CTransaction{tx})); // Sequence locks fail
 
     const int SEQUENCE_LOCK_TIME = 512; // Sequence locks pass 512 seconds later
@@ -426,7 +426,7 @@ void MinerTestingSetup::TestBasicMining(const CChainParams& chainparams, const C
     tx.nLockTime = m_node.chainman->ActiveChain().Tip()->nHeight + 1;
     hash = tx.GetHash();
     m_node.mempool->addUnchecked(entry.Time(GetTime()).FromTx(tx));
-    BOOST_CHECK(!CheckFinalTxAtTip(m_node.chainman->ActiveChain().Tip(), CTransaction{tx})); // Locktime fails
+    BOOST_CHECK(!CheckFinalTxAtTip(*Assert(m_node.chainman->ActiveChain().Tip()), CTransaction{tx})); // Locktime fails
     BOOST_CHECK(TestSequenceLocks(CTransaction{tx})); // Sequence locks pass
     BOOST_CHECK(IsFinalTx(CTransaction(tx), m_node.chainman->ActiveChain().Tip()->nHeight + 2, m_node.chainman->ActiveChain().Tip()->GetMedianTimePast())); // Locktime passes on 2nd block
 
@@ -437,7 +437,7 @@ void MinerTestingSetup::TestBasicMining(const CChainParams& chainparams, const C
     prevheights[0] = baseheight + 4;
     hash = tx.GetHash();
     m_node.mempool->addUnchecked(entry.Time(GetTime()).FromTx(tx));
-    BOOST_CHECK(!CheckFinalTxAtTip(m_node.chainman->ActiveChain().Tip(), CTransaction{tx})); // Locktime fails
+    BOOST_CHECK(!CheckFinalTxAtTip(*Assert(m_node.chainman->ActiveChain().Tip()), CTransaction{tx})); // Locktime fails
     BOOST_CHECK(TestSequenceLocks(CTransaction{tx})); // Sequence locks pass
     BOOST_CHECK(IsFinalTx(CTransaction(tx), m_node.chainman->ActiveChain().Tip()->nHeight + 2, m_node.chainman->ActiveChain().Tip()->GetMedianTimePast() + 1)); // Locktime passes 1 second later
 
@@ -446,7 +446,7 @@ void MinerTestingSetup::TestBasicMining(const CChainParams& chainparams, const C
     prevheights[0] = m_node.chainman->ActiveChain().Tip()->nHeight + 1;
     tx.nLockTime = 0;
     tx.vin[0].nSequence = 0;
-    BOOST_CHECK(CheckFinalTxAtTip(m_node.chainman->ActiveChain().Tip(), CTransaction{tx})); // Locktime passes
+    BOOST_CHECK(CheckFinalTxAtTip(*Assert(m_node.chainman->ActiveChain().Tip()), CTransaction{tx})); // Locktime passes
     BOOST_CHECK(TestSequenceLocks(CTransaction{tx})); // Sequence locks pass
     tx.vin[0].nSequence = 1;
     BOOST_CHECK(!TestSequenceLocks(CTransaction{tx})); // Sequence locks fail
@@ -558,8 +558,6 @@ BOOST_AUTO_TEST_CASE(CreateNewBlock_validity)
     CScript scriptPubKey = CScript() << ParseHex("04678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5f") << OP_CHECKSIG;
     std::unique_ptr<CBlockTemplate> pblocktemplate;
 
-    fCheckpointsEnabled = false;
-
     // Simple block creation, nothing special yet:
     BOOST_CHECK(pblocktemplate = AssemblerForTest(chainparams).CreateNewBlock(scriptPubKey));
 
@@ -588,7 +586,7 @@ BOOST_AUTO_TEST_CASE(CreateNewBlock_validity)
             pblock->nNonce = bi.nonce;
         }
         std::shared_ptr<const CBlock> shared_pblock = std::make_shared<const CBlock>(*pblock);
-        BOOST_CHECK(Assert(m_node.chainman)->ProcessNewBlock(shared_pblock, true, nullptr));
+        BOOST_CHECK(Assert(m_node.chainman)->ProcessNewBlock(shared_pblock, true, true, nullptr));
         pblock->hashPrevBlock = pblock->GetHash();
     }
 
@@ -608,8 +606,6 @@ BOOST_AUTO_TEST_CASE(CreateNewBlock_validity)
     m_node.mempool->clear();
 
     TestPrioritisedMining(chainparams, scriptPubKey, txFirst);
-
-    fCheckpointsEnabled = true;
 }
 
 BOOST_AUTO_TEST_SUITE_END()

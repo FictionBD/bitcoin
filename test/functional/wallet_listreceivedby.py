@@ -18,6 +18,8 @@ from test_framework.wallet_util import test_address
 class ReceivedByTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 2
+        # whitelist peers to speed up tx relay / mempool sync
+        self.extra_args = [["-whitelist=noban@127.0.0.1"]] * self.num_nodes
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
@@ -56,6 +58,11 @@ class ReceivedByTest(BitcoinTestFramework):
         assert_array_result(self.nodes[1].listreceivedbyaddress(0, True),
                             {"address": empty_addr},
                             {"address": empty_addr, "label": "", "amount": 0, "confirmations": 0, "txids": []})
+
+        # No returned addy should be a change addr
+        for node in self.nodes:
+            for addr_obj in node.listreceivedbyaddress():
+                assert_equal(node.getaddressinfo(addr_obj["address"])["ischange"], False)
 
         # Test Address filtering
         # Only on addr
@@ -128,6 +135,9 @@ class ReceivedByTest(BitcoinTestFramework):
 
         txid = self.nodes[0].sendtoaddress(addr, 0.1)
         self.sync_all()
+
+        # getreceivedbylabel returns an error if the wallet doesn't own the label
+        assert_raises_rpc_error(-4, "Label not found in wallet", self.nodes[0].getreceivedbylabel, "dummy")
 
         # listreceivedbylabel should return received_by_label_json because of 0 confirmations
         assert_array_result(self.nodes[1].listreceivedbylabel(),

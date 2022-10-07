@@ -40,18 +40,14 @@ addnode connect to a CJDNS address
 """
 
 import socket
-import os
 
 from test_framework.socks5 import Socks5Configuration, Socks5Command, Socks5Server, AddressType
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
-    PORT_MIN,
-    PORT_RANGE,
     assert_equal,
+    p2p_port,
 )
 from test_framework.netutil import test_ipv6_local
-
-RANGE_BEGIN = PORT_MIN + 2 * PORT_RANGE  # Start after p2p and rpc ports
 
 # Networks returned by RPC getpeerinfo.
 NET_UNROUTABLE = "not_publicly_routable"
@@ -75,19 +71,19 @@ class ProxyTest(BitcoinTestFramework):
         # Create two proxies on different ports
         # ... one unauthenticated
         self.conf1 = Socks5Configuration()
-        self.conf1.addr = ('127.0.0.1', RANGE_BEGIN + (os.getpid() % 1000))
+        self.conf1.addr = ('127.0.0.1', p2p_port(self.num_nodes))
         self.conf1.unauth = True
         self.conf1.auth = False
         # ... one supporting authenticated and unauthenticated (Tor)
         self.conf2 = Socks5Configuration()
-        self.conf2.addr = ('127.0.0.1', RANGE_BEGIN + 1000 + (os.getpid() % 1000))
+        self.conf2.addr = ('127.0.0.1', p2p_port(self.num_nodes + 1))
         self.conf2.unauth = True
         self.conf2.auth = True
         if self.have_ipv6:
             # ... one on IPv6 with similar configuration
             self.conf3 = Socks5Configuration()
             self.conf3.af = socket.AF_INET6
-            self.conf3.addr = ('::1', RANGE_BEGIN + 2000 + (os.getpid() % 1000))
+            self.conf3.addr = ('::1', p2p_port(self.num_nodes + 2))
             self.conf3.unauth = True
             self.conf3.auth = True
         else:
@@ -336,19 +332,36 @@ class ProxyTest(BitcoinTestFramework):
         msg = "Error: Invalid -i2psam address or hostname: 'def:xyz'"
         self.nodes[1].assert_start_raises_init_error(expected_msg=msg)
 
-        msg = (
-            "Error: Outbound connections restricted to Tor (-onlynet=onion) but "
-            "the proxy for reaching the Tor network is not provided (no -proxy= "
-            "and no -onion= given) or it is explicitly forbidden (-onion=0)"
-        )
-        self.log.info("Test passing -onlynet=onion without -proxy or -onion raises expected init error")
-        self.nodes[1].extra_args = ["-onlynet=onion"]
+        self.log.info("Test passing invalid -onlynet=i2p without -i2psam raises expected init error")
+        self.nodes[1].extra_args = ["-onlynet=i2p"]
+        msg = "Error: Outbound connections restricted to i2p (-onlynet=i2p) but -i2psam is not provided"
+        self.nodes[1].assert_start_raises_init_error(expected_msg=msg)
+
+        self.log.info("Test passing invalid -onlynet=cjdns without -cjdnsreachable raises expected init error")
+        self.nodes[1].extra_args = ["-onlynet=cjdns"]
+        msg = "Error: Outbound connections restricted to CJDNS (-onlynet=cjdns) but -cjdnsreachable is not provided"
         self.nodes[1].assert_start_raises_init_error(expected_msg=msg)
 
         self.log.info("Test passing -onlynet=onion with -onion=0/-noonion raises expected init error")
+        msg = (
+            "Error: Outbound connections restricted to Tor (-onlynet=onion) but "
+            "the proxy for reaching the Tor network is explicitly forbidden: -onion=0"
+        )
         for arg in ["-onion=0", "-noonion"]:
             self.nodes[1].extra_args = ["-onlynet=onion", arg]
             self.nodes[1].assert_start_raises_init_error(expected_msg=msg)
+
+        self.log.info("Test passing -onlynet=onion without -proxy, -onion or -listenonion raises expected init error")
+        self.nodes[1].extra_args = ["-onlynet=onion", "-listenonion=0"]
+        msg = (
+            "Error: Outbound connections restricted to Tor (-onlynet=onion) but the proxy for "
+            "reaching the Tor network is not provided: none of -proxy, -onion or -listenonion is given"
+        )
+        self.nodes[1].assert_start_raises_init_error(expected_msg=msg)
+
+        self.log.info("Test passing -onlynet=onion without -proxy or -onion but with -listenonion=1 is ok")
+        self.start_node(1, extra_args=["-onlynet=onion", "-listenonion=1"])
+        self.stop_node(1)
 
         self.log.info("Test passing unknown network to -onlynet raises expected init error")
         self.nodes[1].extra_args = ["-onlynet=abc"]

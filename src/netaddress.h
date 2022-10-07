@@ -9,8 +9,7 @@
 #include <config/bitcoin-config.h>
 #endif
 
-#include <attributes.h>
-#include <compat.h>
+#include <compat/compat.h>
 #include <crypto/siphash.h>
 #include <prevector.h>
 #include <random.h>

@@ -10,12 +10,6 @@ if [[ $QEMU_USER_CMD == qemu-s390* ]]; then
   export LC_ALL=C
 fi
 
-if [ "$CI_OS_NAME" == "macos" ]; then
-  sudo -H pip3 install --upgrade pip
-  # shellcheck disable=SC2086
-  IN_GETOPT_BIN="/usr/local/opt/gnu-getopt/bin/getopt" ${CI_RETRY_EXE} pip3 install --user $PIP_PACKAGES
-fi
-
 # Create folders that are mounted into the docker
 mkdir -p "${CCACHE_DIR}"
 mkdir -p "${PREVIOUS_RELEASES_DIR}"
@@ -68,11 +62,26 @@ if [[ $DOCKER_NAME_TAG == *centos* ]]; then
   ${CI_RETRY_EXE} CI_EXEC dnf -y install epel-release
   ${CI_RETRY_EXE} CI_EXEC dnf -y --allowerasing install "$DOCKER_PACKAGES" "$PACKAGES"
 elif [ "$CI_USE_APT_INSTALL" != "no" ]; then
+  if [[ "${ADD_UNTRUSTED_BPFCC_PPA}" == "true" ]]; then
+    # Ubuntu 22.04 LTS and Debian 11 both have an outdated bpfcc-tools packages.
+    # The iovisor PPA is outdated as well. The next Ubuntu and Debian releases will contain updated
+    # packages. Meanwhile, use an untrusted PPA to install an up-to-date version of the bpfcc-tools
+    # package.
+    # TODO: drop this once we can use newer images in GCE
+    CI_EXEC add-apt-repository ppa:hadret/bpfcc
+  fi
   ${CI_RETRY_EXE} CI_EXEC apt-get update
   ${CI_RETRY_EXE} CI_EXEC apt-get install --no-install-recommends --no-upgrade -y "$PACKAGES" "$DOCKER_PACKAGES"
-  if [ -n "$PIP_PACKAGES" ]; then
+fi
+
+if [ -n "$PIP_PACKAGES" ]; then
+  if [ "$CI_OS_NAME" == "macos" ]; then
+    sudo -H pip3 install --upgrade pip
     # shellcheck disable=SC2086
-    ${CI_RETRY_EXE} pip3 install --user $PIP_PACKAGES
+    IN_GETOPT_BIN="/usr/local/opt/gnu-getopt/bin/getopt" ${CI_RETRY_EXE} pip3 install --user $PIP_PACKAGES
+  else
+    # shellcheck disable=SC2086
+    ${CI_RETRY_EXE} CI_EXEC pip3 install --user $PIP_PACKAGES
   fi
 fi
 

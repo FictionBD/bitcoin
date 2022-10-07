@@ -9,6 +9,7 @@
 
 #include <chainparamsbase.h>
 #include <clientversion.h>
+#include <compat/compat.h>
 #include <compat/stdin.h>
 #include <policy/feerate.h>
 #include <rpc/client.h>
@@ -412,8 +413,8 @@ private:
         bool is_addr_relay_enabled;
         bool is_bip152_hb_from;
         bool is_bip152_hb_to;
-        bool is_block_relay;
         bool is_outbound;
+        bool is_tx_relay;
         bool operator<(const Peer& rhs) const { return std::tie(is_outbound, min_ping) < std::tie(rhs.is_outbound, rhs.min_ping); }
     };
     std::vector<Peer> m_peers;
@@ -477,7 +478,7 @@ public:
             const int8_t network_id{NetworkStringToId(network)};
             if (network_id == UNKNOWN_NETWORK) continue;
             const bool is_outbound{!peer["inbound"].get_bool()};
-            const bool is_block_relay{!peer["relaytxes"].get_bool()};
+            const bool is_tx_relay{peer["relaytxes"].isNull() ? true : peer["relaytxes"].get_bool()};
             const std::string conn_type{peer["connection_type"].get_str()};
             ++m_counts.at(is_outbound).at(network_id);      // in/out by network
             ++m_counts.at(is_outbound).at(NETWORKS.size()); // in/out overall
@@ -505,7 +506,7 @@ public:
                 const bool is_addr_relay_enabled{peer["addr_relay_enabled"].isNull() ? false : peer["addr_relay_enabled"].get_bool()};
                 const bool is_bip152_hb_from{peer["bip152_hb_from"].get_bool()};
                 const bool is_bip152_hb_to{peer["bip152_hb_to"].get_bool()};
-                m_peers.push_back({addr, sub_version, conn_type, network, age, min_ping, ping, addr_processed, addr_rate_limited, last_blck, last_recv, last_send, last_trxn, peer_id, mapped_as, version, is_addr_relay_enabled, is_bip152_hb_from, is_bip152_hb_to, is_block_relay, is_outbound});
+                m_peers.push_back({addr, sub_version, conn_type, network, age, min_ping, ping, addr_processed, addr_rate_limited, last_blck, last_recv, last_send, last_trxn, peer_id, mapped_as, version, is_addr_relay_enabled, is_bip152_hb_from, is_bip152_hb_to, is_outbound, is_tx_relay});
                 m_max_addr_length = std::max(addr.length() + 1, m_max_addr_length);
                 m_max_addr_processed_length = std::max(ToString(addr_processed).length(), m_max_addr_processed_length);
                 m_max_addr_rate_limited_length = std::max(ToString(addr_rate_limited).length(), m_max_addr_rate_limited_length);
@@ -538,7 +539,7 @@ public:
                     PingTimeToString(peer.ping),
                     peer.last_send ? ToString(time_now - peer.last_send) : "",
                     peer.last_recv ? ToString(time_now - peer.last_recv) : "",
-                    peer.last_trxn ? ToString((time_now - peer.last_trxn) / 60) : peer.is_block_relay ? "*" : "",
+                    peer.last_trxn ? ToString((time_now - peer.last_trxn) / 60) : peer.is_tx_relay ? "" : "*",
                     peer.last_blck ? ToString((time_now - peer.last_blck) / 60) : "",
                     strprintf("%s%s", peer.is_bip152_hb_to ? "." : " ", peer.is_bip152_hb_from ? "*" : " "),
                     m_max_addr_processed_length, // variable spacing
@@ -806,7 +807,7 @@ static UniValue CallRPC(BaseRequestHandler* rh, const std::string& strMethod, co
         if (failedToGetAuthCookie) {
             throw std::runtime_error(strprintf(
                 "Could not locate RPC credentials. No authentication cookie could be found, and RPC password is not set.  See -rpcpassword and -stdinrpcpass.  Configuration file: (%s)",
-                fs::PathToString(GetConfigFile(gArgs.GetArg("-conf", BITCOIN_CONF_FILENAME)))));
+                fs::PathToString(GetConfigFile(gArgs.GetPathArg("-conf", BITCOIN_CONF_FILENAME)))));
         } else {
             throw std::runtime_error("Authorization failed: Incorrect rpcuser or rpcpassword");
         }
@@ -910,7 +911,7 @@ static void GetWalletBalances(UniValue& result)
 
     UniValue balances(UniValue::VOBJ);
     for (const UniValue& wallet : wallets.getValues()) {
-        const std::string wallet_name = wallet.get_str();
+        const std::string& wallet_name = wallet.get_str();
         const UniValue getbalances = ConnectAndCallRPC(&rh, "getbalances", /* args=*/{}, wallet_name);
         const UniValue& balance = find_value(getbalances, "result")["mine"]["trusted"];
         balances.pushKV(wallet_name, balance);
@@ -1212,19 +1213,11 @@ static int CommandLineRPC(int argc, char *argv[])
     return nRet;
 }
 
-#ifdef WIN32
-// Export main() and ensure working ASLR on Windows.
-// Exporting a symbol will prevent the linker from stripping
-// the .reloc section from the binary, which is a requirement
-// for ASLR. This is a temporary workaround until a fixed
-// version of binutils is used for releases.
-__declspec(dllexport) int main(int argc, char* argv[])
+MAIN_FUNCTION
 {
+#ifdef WIN32
     util::WinCmdLineArgs winArgs;
     std::tie(argc, argv) = winArgs.get();
-#else
-int main(int argc, char* argv[])
-{
 #endif
     SetupEnvironment();
     if (!SetupNetworking()) {

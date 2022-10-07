@@ -26,7 +26,7 @@ class CBlockFileInfo;
 class CBlockUndo;
 class CChain;
 class CChainParams;
-class CChainState;
+class Chainstate;
 class ChainstateManager;
 struct CCheckpointData;
 struct FlatFilePos;
@@ -49,7 +49,7 @@ extern std::atomic_bool fReindex;
 /** Pruning-related variables and constants */
 /** True if we're running in -prune mode. */
 extern bool fPruneMode;
-/** Number of MiB of block files that we're trying to stay below. */
+/** Number of bytes of block files that we're trying to stay below. */
 extern uint64_t nPruneTarget;
 
 // Because validation code takes pointers to the map's CBlockIndex objects, if
@@ -75,12 +75,12 @@ struct PruneLockInfo {
  * Maintains a tree of blocks (stored in `m_block_index`) which is consulted
  * to determine where the most-work tip is.
  *
- * This data is used mostly in `CChainState` - information about, e.g.,
+ * This data is used mostly in `Chainstate` - information about, e.g.,
  * candidate tips is not maintained here.
  */
 class BlockManager
 {
-    friend CChainState;
+    friend Chainstate;
     friend ChainstateManager;
 
 private:
@@ -153,7 +153,7 @@ public:
     std::unique_ptr<CBlockTreeDB> m_block_tree_db GUARDED_BY(::cs_main);
 
     bool WriteBlockIndexDB() EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
-    bool LoadBlockIndexDB() EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+    bool LoadBlockIndexDB(const Consensus::Params& consensus_params) EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
 
     CBlockIndex* AddToBlockIndex(const CBlockHeader& block, CBlockIndex*& best_header) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
     /** Create a new block index entry for a given block hash */
@@ -211,7 +211,7 @@ bool ReadRawBlockFromDisk(std::vector<uint8_t>& block, const FlatFilePos& pos, c
 
 bool UndoReadFromDisk(CBlockUndo& blockundo, const CBlockIndex* pindex);
 
-void ThreadImport(ChainstateManager& chainman, std::vector<fs::path> vImportFiles, const ArgsManager& args);
+void ThreadImport(ChainstateManager& chainman, std::vector<fs::path> vImportFiles, const ArgsManager& args, const fs::path& mempool_path);
 } // namespace node
 
 #endif // BITCOIN_NODE_BLOCKSTORAGE_H
