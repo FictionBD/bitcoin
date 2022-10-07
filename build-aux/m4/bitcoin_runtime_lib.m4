@@ -1,7 +1,7 @@
 # On some platforms clang builtin implementations
 # require compiler-rt as a runtime library to use.
-#
-# See:
+# https://github.com/ryihan/bitcoin/
+# See: ryihan
 # - https://bugs.llvm.org/show_bug.cgi?id=28629
 
 m4_define([_CHECK_RUNTIME_testbody], [[
